@@ -125,17 +125,17 @@ function showPatientFormWithPrefilledData(patientData) {
         }
 
         // Update patient data
-        const patientData = { name, rm, weight, height, lvotDiameter };
+        const updatedPatientData = { name, rm, weight, height, lvotDiameter };
         try {
             await fetch('/api/patients', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(patientData)
+                body: JSON.stringify(updatedPatientData)
             });
             // Proceed to hemodynamic parameter entry
-            showHemodynamicForm(patientData);
+            showHemodynamicForm(updatedPatientData);
         } catch (error) {
             console.error('Error:', error);
         }
@@ -276,9 +276,22 @@ function showHemodynamicForm(patientData) {
     contentDiv.innerHTML = `
         <h2 class="text-xl font-bold mb-4">Enter Hemodynamic Parameters</h2>
         <form id="hemodynamicForm" class="space-y-4">
+            <!-- Cardiac Hemodynamic Section -->
+            <div>
+                <label class="block">TDS (Systolic Blood Pressure) (mmHg)</label>
+                <input type="text" id="tds" class="border rounded w-full px-2 py-1" required>
+            </div>
+            <div>
+                <label class="block">TDD (Diastolic Blood Pressure) (mmHg)</label>
+                <input type="text" id="tdd" class="border rounded w-full px-2 py-1" required>
+            </div>
+            <div>
+                <label class="block">HR (Heart Rate) (bpm)</label>
+                <input type="text" id="hr" class="border rounded w-full px-2 py-1" required>
+            </div>
             <!-- Optional Temperature Field -->
             <div>
-                <label class="block">Temperature (&degC) (optional)</label>
+                <label class="block">Temperature (&deg;C) (optional)</label>
                 <input type="text" id="temperature" class="border rounded w-full px-2 py-1">
             </div>
             <!-- Fluid Balance Section -->
@@ -293,19 +306,6 @@ function showHemodynamicForm(patientData) {
             <div>
                 <label class="block">Fluid Balance (cc) (optional)</label>
                 <input type="text" id="fluidBalance" class="border rounded w-full px-2 py-1">
-            </div>
-            <!-- Cardiac Hemodynamic Section -->
-            <div>
-                <label class="block">TDS (Systolic Blood Pressure) (mmHg)</label>
-                <input type="text" id="tds" class="border rounded w-full px-2 py-1" required>
-            </div>
-            <div>
-                <label class="block">TDD (Diastolic Blood Pressure) (mmHg)</label>
-                <input type="text" id="tdd" class="border rounded w-full px-2 py-1" required>
-            </div>
-            <div>
-                <label class="block">HR (Heart Rate) (bpm)</label>
-                <input type="text" id="hr" class="border rounded w-full px-2 py-1" required>
             </div>
             <div>
                 <label class="block">LVOT Diameter (cm)</label>
@@ -349,11 +349,11 @@ function showHemodynamicForm(patientData) {
                 </div>
             </div>
             <div>
-                <label class="block">Right Pleural (cm) (optional)</label>
+                <label class="block">Right Pleural (mm) (optional)</label>
                 <input type="text" id="rightPleural" class="border rounded w-full px-2 py-1">
             </div>
             <div>
-                <label class="block">Left Pleural (cm) (optional)</label>
+                <label class="block">Left Pleural (mm) (optional)</label>
                 <input type="text" id="leftPleural" class="border rounded w-full px-2 py-1">
             </div>
             <!-- Optional Notes Field -->
@@ -396,7 +396,11 @@ function showHemodynamicForm(patientData) {
         data.fluidBalance = isNaN(data.fluidBalance) ? 0 : data.fluidBalance;
 
         // Validations
-        if (isNaN(data.tds) || isNaN(data.tdd) || isNaN(data.hr) || isNaN(data.lvotDiameter) || isNaN(data.lvotVti) || isNaN(data.ivcMax) || isNaN(data.ivcMin)) {
+        if (
+            isNaN(data.tds) || isNaN(data.tdd) || isNaN(data.hr) ||
+            isNaN(data.lvotDiameter) || isNaN(data.lvotVti) ||
+            isNaN(data.ivcMax) || isNaN(data.ivcMin)
+        ) {
             alert('Please fill in all required fields with valid data.');
             return;
         }
@@ -452,7 +456,7 @@ function showHemodynamicForm(patientData) {
 function parseLocaleNumber(stringNumber) {
     if (!stringNumber) return NaN;
     // Replace commas with dots and remove any non-numeric characters except dot and minus sign
-    var normalized = stringNumber.replace(/,/g, '.').replace(/[^0-9\.\-]/g, '');
+    var normalized = stringNumber.replace(/,/g, '.').replace(/[^0-9.\-]/g, '');
     return parseFloat(normalized);
 }
 
@@ -466,13 +470,14 @@ function formatNumber(number) {
 }
 
 function performCalculations(data, patientData) {
-    // Implement the required formulas
     let calculations = {};
 
     // Urine Output per kgBW per hour
     if (data.urineOutput) {
-        // Use commas as separators
-        let urineOutputs = data.urineOutput.split(',').map(s => parseLocaleNumber(s.trim())).filter(n => !isNaN(n));
+        let urineOutputs = data.urineOutput
+            .split(',')
+            .map(s => parseLocaleNumber(s.trim()))
+            .filter(n => !isNaN(n));
         let totalUrineOutput = urineOutputs.reduce((a, b) => a + b, 0);
         calculations.totalUrineOutput = formatNumber(totalUrineOutput);
 
@@ -494,20 +499,23 @@ function performCalculations(data, patientData) {
     let lvCo = (lvSv * data.hr) / 1000;
     calculations.lvCo = formatNumber(lvCo);
 
-    // IVC Collapsibility
+    // Hitung persentase collapsibility (untuk menentukan eRAP berdasarkan tabel baru)
     let ivcCollapsibility = ((data.ivcMax - data.ivcMin) / data.ivcMax) * 100;
-    calculations.ivcCollapsibility = formatNumber(ivcCollapsibility);
 
-    // eRAP
+    // eRAP berdasarkan tabel baru (Low, Intermediate, High):
+    // - IVC < 2.1 cm & Collapsibility > 50%   => eRAP = 3 mmHg (Low)
+    // - IVC < 2.1 cm & Collapsibility ≤ 50%   => eRAP = 8 mmHg (Intermediate)
+    // - IVC ≥ 2.1 cm & Collapsibility > 50%   => eRAP = 8 mmHg (Intermediate)
+    // - IVC ≥ 2.1 cm & Collapsibility ≤ 50%   => eRAP = 15 mmHg (High)
     let eRAP;
-    if (data.ivcMax > 2.1 && ivcCollapsibility < 50) {
-        eRAP = 20;
-    } else if (data.ivcMax > 2.1 && ivcCollapsibility >= 50) {
-        eRAP = 15;
-    } else if (data.ivcMax >= 1.0 && data.ivcMax <= 2.1 && ivcCollapsibility < 50) {
+    if (data.ivcMax < 2.1 && ivcCollapsibility > 50) {
+        eRAP = 3;
+    } else if (data.ivcMax < 2.1 && ivcCollapsibility <= 50) {
+        eRAP = 8;
+    } else if (data.ivcMax >= 2.1 && ivcCollapsibility > 50) {
         eRAP = 8;
     } else {
-        eRAP = 3;
+        eRAP = 15;
     }
     calculations.eRAP = formatNumber(eRAP);
 
@@ -530,6 +538,16 @@ function performCalculations(data, patientData) {
     // Cardiac Power Index
     let cpi = cpo / bsa;
     calculations.cpi = formatNumber(cpi);
+
+    // Collapsibility Index (formula: ((IVC Max - IVC Min) / ((IVC Max + IVC Min)/2)) * 100)
+    calculations.collapsibilityIndex = formatNumber(
+      ((data.ivcMax - data.ivcMin) / (data.ivcMax) * 100
+    );
+
+    // Distensibility Index (formula: ((IVC Max - IVC Min) / IVC Min) * 100)
+    calculations.distensibilityIndex = formatNumber(
+      ((data.ivcMax - data.ivcMin) / data.ivcMin) * 100
+    );
 
     // Pleural Effusion Estimation
     calculations.rightPleuralEffusion = formatNumber(data.rightPleural * 20);
@@ -569,7 +587,7 @@ Fluid balance: ${calculations.fluidBalance} cc
     // Optional Temperature Section
     let temperatureSection = '';
     if (!isNaN(data.temperature)) {
-        temperatureSection = `Suhu: ${formatNumber(data.temperature)}&degC\n`;
+        temperatureSection = `Suhu: ${formatNumber(data.temperature)}°C\n`;
     }
 
     // Lung Ultrasound Section
@@ -629,6 +647,8 @@ BSA: ${calculations.bsa}
 Cardiac Index: ${calculations.ci}
 Cardiac Power Output: ${calculations.cpo}
 Cardiac Power Index: ${calculations.cpi}
+Collapsibility Index: ${calculations.collapsibilityIndex}%
+Distensibility Index: ${calculations.distensibilityIndex}%
 
 ${lungUltrasoundSection}${optionalNotesSection}
 `;
